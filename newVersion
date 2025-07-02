@@ -277,11 +277,87 @@ const Step1 = ({ criteria, setCriteria, options, setOptions }) => {
   );
 };
 
+const getIntensityDescription = (value) => {
+    const intValue = Math.round(value);
+    switch (intValue) {
+        case 1: return "Equal Importance: Two factors contribute equally to the objective.";
+        case 2: return "Intermediate Importance between 1 and 3.";
+        case 3: return "Somewhat More Important: Experience and judgment slightly favor one over the other.";
+        case 4: return "Intermediate Importance between 3 and 5.";
+        case 5: return "Much More Important: Experience and judgment strongly favor one over the other.";
+        case 6: return "Intermediate Importance between 5 and 7.";
+        case 7: return "Very Much More Important: A factor is favored very strongly over the other.";
+        case 8: return "Intermediate Importance between 7 and 9.";
+        case 9: return "Extremely More Important: The evidence favoring one factor over another is of the highest possible validity.";
+        default: return "";
+    }
+};
+
+const ComparisonSlider = ({ crit1, crit2, value, onChange }) => {
+    // Convert matrix value to slider position (-8 to 8)
+    // Negative slider value means crit1 is more important
+    // Positive slider value means crit2 is more important
+    const sliderValue = value >= 1 ? -(value - 1) : (1 / value - 1);
+
+    const handleSliderChange = (e) => {
+        const newSliderValue = parseFloat(e.target.value);
+        let newMatrixValue;
+        if (newSliderValue <= 0) { // Left side -> crit1 is more important
+            newMatrixValue = -newSliderValue + 1;
+        } else { // Right side -> crit2 is more important
+            newMatrixValue = 1 / (newSliderValue + 1);
+        }
+        onChange(newMatrixValue);
+    };
+
+    let preferenceText;
+    let intensityValue;
+
+    if (value > 1) {
+        preferenceText = `${crit1} is ${Math.round(value)}x more important than ${crit2}`;
+        intensityValue = value;
+    } else if (value < 1) {
+        const inverseValue = 1 / value;
+        preferenceText = `${crit2} is ${Math.round(inverseValue)}x more important than ${crit1}`;
+        intensityValue = inverseValue;
+    } else {
+        preferenceText = "Both criteria are equally important";
+        intensityValue = 1;
+    }
+
+    return (
+        <div className="p-4 bg-gray-50 rounded-lg">
+            <div className="flex justify-between items-center mb-2 font-semibold text-gray-700">
+                <span>{crit1}</span>
+                <span>{crit2}</span>
+            </div>
+            <input
+                type="range"
+                min="-8"
+                max="8"
+                step="1"
+                value={sliderValue}
+                onChange={handleSliderChange}
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+            />
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+                <span>More important</span>
+                <span>More important</span>
+            </div>
+            <div className="text-center mt-3 p-2 bg-white rounded-md shadow-inner">
+                <p className="font-semibold text-blue-700">{preferenceText}</p>
+                <p className="text-sm text-gray-600">{getIntensityDescription(intensityValue)}</p>
+            </div>
+        </div>
+    );
+};
+
+
 const Step2 = ({ criteria, pairwiseMatrix, onMatrixChange, weights, consistency }) => {
-    const handleSliderChange = (row, col, value) => {
+    const handleComparisonChange = (i, j, newValue) => {
         const newMatrix = pairwiseMatrix.map(r => r.slice());
-        newMatrix[row][col] = value;
-        newMatrix[col][row] = 1 / value;
+        newMatrix[i][j] = newValue;
+        newMatrix[j][i] = 1 / newValue;
         onMatrixChange(newMatrix);
     };
 
@@ -291,28 +367,14 @@ const Step2 = ({ criteria, pairwiseMatrix, onMatrixChange, weights, consistency 
                 {criteria.map((crit1, i) =>
                     criteria.map((crit2, j) => {
                         if (i < j) {
-                            const value = pairwiseMatrix[i]?.[j] || 1;
-                            const inverseValue = 1 / value;
-                            const preference = value > 1 ? `${crit1.content} is ${value.toFixed(2)}x more important` :
-                                               value < 1 ? `${crit2.content} is ${inverseValue.toFixed(2)}x more important` :
-                                               'Equally important';
                             return (
-                                <div key={`${i}-${j}`} className="p-4 bg-gray-50 rounded-lg">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <span className="font-semibold text-gray-700">{crit1.content}</span>
-                                        <span className="font-semibold text-gray-700">{crit2.content}</span>
-                                    </div>
-                                    <input
-                                        type="range"
-                                        min="1"
-                                        max="9"
-                                        step="0.1"
-                                        value={value > 1 ? value : 1}
-                                        onChange={(e) => handleSliderChange(i, j, parseFloat(e.target.value))}
-                                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                    />
-                                     <div className="text-center mt-1 text-sm text-gray-600">{preference}</div>
-                                </div>
+                                <ComparisonSlider
+                                    key={`${i}-${j}`}
+                                    crit1={crit1.content}
+                                    crit2={crit2.content}
+                                    value={pairwiseMatrix[i]?.[j] || 1}
+                                    onChange={(newValue) => handleComparisonChange(i, j, newValue)}
+                                />
                             );
                         }
                         return null;
