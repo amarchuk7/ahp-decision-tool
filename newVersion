@@ -716,7 +716,7 @@ const Step4 = ({ options, criteria, optionValues, setOptionValues, utilityFuncti
     );
 };
 
-const Step5 = ({ objective, options, criteria, weights, utilityScores, pairwiseMatrix, utilityFunctions, optionValues }) => {
+const Step5 = ({ objective, options, criteria, weights, consistency, utilityScores, pairwiseMatrix, utilityFunctions, optionValues }) => {
 
     const finalScores = useMemo(() => {
         const scores = {};
@@ -753,13 +753,41 @@ const Step5 = ({ objective, options, criteria, weights, utilityScores, pairwiseM
             </tr>
         `).join('');
         
-        const pairwiseHeader = criteria.map(c => `<th class="p-2 border">${c.content}</th>`).join('');
-        const pairwiseBody = criteria.map((crit1, i) => `
-            <tr>
-                <th class="p-2 border bg-gray-100">${crit1.content}</th>
-                ${criteria.map((crit2, j) => `<td class="p-2 border text-center font-mono">${pairwiseMatrix[i][j].toFixed(2)}</td>`).join('')}
-            </tr>
-        `).join('');
+        const simplifiedPairwise = criteria.map((crit1, i) => {
+            return criteria.map((crit2, j) => {
+                if (i >= j) return '';
+                const value = pairwiseMatrix[i][j];
+                let text, intensity;
+                if (value > 1) {
+                    text = `${crit1.content} > ${crit2.content} (${Math.round(value)}x)`;
+                    intensity = (Math.round(value) / 9) * 50;
+                    return `<div class="flex items-center justify-between p-2"><span class="w-1/3 text-right">${crit1.content}</span><div class="w-1/3 mx-2 h-2 bg-gray-200 rounded-full"><div class="h-2 bg-blue-500 rounded-l-full" style="width:${intensity}%; margin-left:${50-intensity}%"></div></div><span class="w-1/3 text-left">${crit2.content}</span></div>`;
+                } else if (value < 1) {
+                    const inv = 1 / value;
+                    text = `${crit2.content} > ${crit1.content} (${Math.round(inv)}x)`;
+                    intensity = (Math.round(inv) / 9) * 50;
+                    return `<div class="flex items-center justify-between p-2"><span class="w-1/3 text-right">${crit1.content}</span><div class="w-1/3 mx-2 h-2 bg-gray-200 rounded-full"><div class="h-2 bg-blue-500 rounded-r-full" style="width:${intensity}%; margin-left:50%"></div></div><span class="w-1/3 text-left">${crit2.content}</span></div>`;
+                } else {
+                    text = `${crit1.content} = ${crit2.content}`;
+                     return `<div class="flex items-center justify-between p-2"><span class="w-1/3 text-right">${crit1.content}</span><div class="w-1/3 mx-2 h-2 bg-gray-200 rounded-full"><div class="h-2 bg-blue-500 rounded-full" style="width:4%; margin-left:48%"></div></div><span class="w-1/3 text-left">${crit2.content}</span></div>`;
+                }
+            }).join('');
+        }).join('');
+
+        const utilityAppendix = criteria.map(crit => {
+            const func = utilityFunctions[crit.id];
+            let content;
+            if (func.criterionType === 'qualitative') {
+                const levels = func.qualitativeLevels.map(l => `<li>${l.label}: ${l.utility}</li>`).join('');
+                content = `<ul>${levels}</ul>`;
+            } else if (func.mode === 'formula') {
+                content = `<p class="font-mono bg-gray-100 p-2 rounded">f(x) = ${func.formulaString}</p>`;
+            } else {
+                const points = func.points.map(p => `<li>Value ${p.x} → Utility ${p.y}</li>`).join('');
+                content = `<ul>${points}</ul>`;
+            }
+            return `<div class="mb-4"><h4 class="font-semibold">${crit.content} (${func.criterionType})</h4>${content}</div>`;
+        }).join('');
 
         const evaluationsHeader = criteria.map(c => `<th class="p-2 border">${c.content}</th>`).join('');
         const evaluationsBody = options.map(option => `
@@ -779,6 +807,7 @@ const Step5 = ({ objective, options, criteria, weights, utilityScores, pairwiseM
                 <script src="https://cdn.tailwindcss.com"></script>
                 <style>
                     @media print { .no-print { display: none; } body { -webkit-print-color-adjust: exact; } }
+                    section { page-break-inside: avoid; }
                 </style>
             </head>
             <body class="bg-white p-8 md:p-12 font-sans">
@@ -793,7 +822,11 @@ const Step5 = ({ objective, options, criteria, weights, utilityScores, pairwiseM
                         <p class="text-lg text-gray-600 mt-2">Analytic Hierarchy Process (AHP)</p>
                     </header>
                     <section class="mb-10">
-                        <h2 class="text-2xl font-semibold text-gray-700 border-b pb-2 mb-4">1. Executive Summary</h2>
+                        <h2 class="text-2xl font-semibold text-gray-700 border-b pb-2 mb-4">1. About This Report</h2>
+                        <p class="text-gray-700 mb-2">This report uses the Analytic Hierarchy Process (AHP) to break down a complex decision into a structured system of goals, criteria, and alternatives. This allows for a systematic and rational evaluation. For more details on the methodology, see the <a href="https://www.burgehugheswalsh.co.uk/Uploaded/1/Documents/Analytic-Hierarchy-Process-Tool-v2.pdf" target="_blank" class="text-blue-600 hover:underline">AHP explanation document</a>.</p>
+                    </section>
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-semibold text-gray-700 border-b pb-2 mb-4">2. Executive Summary</h2>
                         <p class="text-lg text-gray-700 mb-2"><strong>Decision Goal:</strong> ${objective}</p>
                         <div class="bg-green-100 border-l-4 border-green-500 text-green-800 p-4 rounded-r-lg">
                             <p class="font-bold text-xl">Recommendation: ${sortedOptions[0]?.content || 'N/A'}</p>
@@ -801,27 +834,34 @@ const Step5 = ({ objective, options, criteria, weights, utilityScores, pairwiseM
                         </div>
                     </section>
                     <section class="mb-10">
-                        <h2 class="text-2xl font-semibold text-gray-700 border-b pb-2 mb-4">2. Final Results</h2>
+                        <h2 class="text-2xl font-semibold text-gray-700 border-b pb-2 mb-4">3. Final Results</h2>
                         <table class="w-full text-left border-collapse">
                             <thead class="bg-gray-100"><tr><th class="p-3 border">Rank</th><th class="p-3 border">Option</th><th class="p-3 border">Final Score</th></tr></thead>
                             <tbody>${resultsTable}</tbody>
                         </table>
                     </section>
                     <section class="mb-10">
-                        <h2 class="text-2xl font-semibold text-gray-700 border-b pb-2 mb-4">3. Criteria Weights</h2>
-                        <table class="w-full text-left border-collapse">
-                            <thead class="bg-gray-100"><tr><th class="p-3 border">Criterion</th><th class="p-3 border">Weight</th></tr></thead>
-                            <tbody>${weightsTable}</tbody>
-                        </table>
+                        <h2 class="text-2xl font-semibold text-gray-700 border-b pb-2 mb-4">4. Criteria Weights & Consistency</h2>
+                        <p class="text-gray-600 mb-4">The following weights were determined by comparing the relative importance of each criterion. The Consistency Ratio (CR) checks for contradictions in the judgments; a value below 0.10 is considered acceptable.</p>
+                        <div class="grid md:grid-cols-2 gap-8">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-gray-100"><tr><th class="p-3 border">Criterion</th><th class="p-3 border">Weight</th></tr></thead>
+                                <tbody>${weightsTable}</tbody>
+                            </table>
+                            <div class="p-4 bg-gray-100 rounded-lg">
+                                <h4 class="font-bold text-lg">Consistency Check</h4>
+                                <p class="text-2xl font-mono ${consistency.isConsistent ? 'text-green-600' : 'text-red-600'}">${consistency.cr.toFixed(4)}</p>
+                                <p>${consistency.isConsistent ? 'Judgments are consistent.' : 'Judgments are inconsistent.'}</p>
+                            </div>
+                        </div>
                     </section>
                     <section class="mb-10" style="page-break-before: always;">
-                        <h2 class="text-2xl font-semibold text-gray-700 border-b pb-2 mb-4">4. Appendix</h2>
-                        <h3 class="text-xl font-semibold text-gray-700 mt-6 mb-2">A. Pairwise Comparison Matrix</h3>
-                        <table class="w-full text-left border-collapse text-sm">
-                            <thead class="bg-gray-100"><tr><th class="p-2 border"></th>${pairwiseHeader}</tr></thead>
-                            <tbody>${pairwiseBody}</tbody>
-                        </table>
-                        <h3 class="text-xl font-semibold text-gray-700 mt-8 mb-2">B. Option Evaluations</h3>
+                        <h2 class="text-2xl font-semibold text-gray-700 border-b pb-2 mb-4">5. Appendix</h2>
+                        <h3 class="text-xl font-semibold text-gray-700 mt-6 mb-2">A. Simplified Pairwise Comparisons</h3>
+                        <div class="space-y-2">${simplifiedPairwise}</div>
+                        <h3 class="text-xl font-semibold text-gray-700 mt-8 mb-2">B. Utility Functions</h3>
+                        <div class="p-4 border rounded-lg">${utilityAppendix}</div>
+                        <h3 class="text-xl font-semibold text-gray-700 mt-8 mb-2">C. Option Evaluations</h3>
                         <table class="w-full text-left border-collapse text-sm">
                             <thead class="bg-gray-100"><tr><th class="p-2 border">Option</th>${evaluationsHeader}</tr></thead>
                             <tbody>${evaluationsBody}</tbody>
@@ -899,7 +939,7 @@ const Step5 = ({ objective, options, criteria, weights, utilityScores, pairwiseM
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
                         </svg>
-                        Generate Printable Report
+                        Generate Report
                     </button>
                 </div>
                 <div className="relative h-96">
@@ -1047,6 +1087,7 @@ function App() {
                     options={options} 
                     criteria={criteria} 
                     weights={weights} 
+                    consistency={consistency}
                     utilityScores={utilityScores}
                     pairwiseMatrix={pairwiseMatrix}
                     utilityFunctions={utilityFunctions}
