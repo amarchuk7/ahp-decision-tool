@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 // Note: The following libraries are loaded via script tags in the App component
 // import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
-// import { jsPDF } from 'jspdf';
-// import 'jspdf-autotable';
 import { Bar, Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -718,7 +716,7 @@ const Step4 = ({ options, criteria, optionValues, setOptionValues, utilityFuncti
     );
 };
 
-const Step5 = ({ objective, options, criteria, weights, utilityScores }) => {
+const Step5 = ({ objective, options, criteria, weights, utilityScores, pairwiseMatrix, utilityFunctions, optionValues }) => {
 
     const finalScores = useMemo(() => {
         const scores = {};
@@ -739,53 +737,107 @@ const Step5 = ({ objective, options, criteria, weights, utilityScores }) => {
         [options, finalScores]
     );
 
-    const exportToPDF = () => {
-        const { jsPDF } = window.jspdf;
-        if (!jsPDF) {
-            console.error("jsPDF not loaded");
-            return;
-        }
-        const doc = new jsPDF();
-        doc.setFontSize(18);
-        doc.text("AHP Analysis Report", 14, 22);
-        doc.setFontSize(11);
-        doc.setTextColor(100);
-        doc.text(`Decision Goal: ${objective}`, 14, 32);
+    const generateReportHTML = () => {
+        const resultsTable = sortedOptions.map((opt, index) => `
+            <tr class="hover:bg-gray-50">
+                <td class="p-3 border">${index + 1}</td>
+                <td class="p-3 border font-semibold">${opt.content}</td>
+                <td class="p-3 border font-mono">${opt.score.toFixed(2)}</td>
+            </tr>
+        `).join('');
 
-
-        doc.autoTable({
-            startY: 40,
-            head: [['Rank', 'Alternative', 'Final Score']],
-            body: sortedOptions.map((opt, index) => [index + 1, opt.content, opt.score.toFixed(2)]),
-            theme: 'striped'
-        });
+        const weightsTable = criteria.map((crit, index) => `
+            <tr class="hover:bg-gray-50">
+                <td class="p-3 border">${crit.content}</td>
+                <td class="p-3 border font-mono">${(weights[index] * 100).toFixed(2)}%</td>
+            </tr>
+        `).join('');
         
-        const finalY = doc.lastAutoTable.finalY;
-        doc.addPage();
-        doc.setFontSize(18);
-        doc.text("Detailed Breakdown", 14, 22);
-        
-        doc.autoTable({
-            startY: 30,
-            head: [['Criteria', 'Weight']],
-            body: criteria.map((crit, index) => [crit.content, `${(weights[index] * 100).toFixed(2)}%`]),
-            theme: 'grid'
-        });
+        const pairwiseHeader = criteria.map(c => `<th class="p-2 border">${c.content}</th>`).join('');
+        const pairwiseBody = criteria.map((crit1, i) => `
+            <tr>
+                <th class="p-2 border bg-gray-100">${crit1.content}</th>
+                ${criteria.map((crit2, j) => `<td class="p-2 border text-center font-mono">${pairwiseMatrix[i][j].toFixed(2)}</td>`).join('')}
+            </tr>
+        `).join('');
 
-        doc.autoTable({
-            startY: doc.lastAutoTable.finalY + 10,
-            head: [['Option', ...criteria.map(c => c.content)]],
-            body: options.map(opt => [
-                opt.content,
-                ...criteria.map(crit => (utilityScores[opt.id]?.[crit.id] || 0).toFixed(2))
-            ]),
-            foot: [['Weights', ...weights.map(w => `${(w*100).toFixed(2)}%`)]],
-            theme: 'grid',
-            headStyles: {fillColor: [22, 160, 133]},
-            footStyles: {fillColor: [44, 62, 80]}
-        });
+        const evaluationsHeader = criteria.map(c => `<th class="p-2 border">${c.content}</th>`).join('');
+        const evaluationsBody = options.map(option => `
+            <tr>
+                <th class="p-2 border bg-gray-100">${option.content}</th>
+                ${criteria.map(criterion => `<td class="p-2 border text-center font-mono">${optionValues[option.id]?.[criterion.id] || 'N/A'}</td>`).join('')}
+            </tr>
+        `).join('');
 
-        doc.save('ahp-report.pdf');
+        return `
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>AHP Analysis Report</title>
+                <script src="https://cdn.tailwindcss.com"></script>
+                <style>
+                    @media print { .no-print { display: none; } body { -webkit-print-color-adjust: exact; } }
+                </style>
+            </head>
+            <body class="bg-white p-8 md:p-12 font-sans">
+                <div class="no-print mb-8 text-center">
+                    <button onclick="window.print()" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors">
+                        Print or Save as PDF
+                    </button>
+                </div>
+                <div class="max-w-4xl mx-auto">
+                    <header class="text-center border-b-2 pb-4 mb-8">
+                        <h1 class="text-4xl font-bold text-gray-800">Decision Analysis Report</h1>
+                        <p class="text-lg text-gray-600 mt-2">Analytic Hierarchy Process (AHP)</p>
+                    </header>
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-semibold text-gray-700 border-b pb-2 mb-4">1. Executive Summary</h2>
+                        <p class="text-lg text-gray-700 mb-2"><strong>Decision Goal:</strong> ${objective}</p>
+                        <div class="bg-green-100 border-l-4 border-green-500 text-green-800 p-4 rounded-r-lg">
+                            <p class="font-bold text-xl">Recommendation: ${sortedOptions[0]?.content || 'N/A'}</p>
+                            <p>Based on the criteria and weightings provided, the recommended option is <strong>${sortedOptions[0]?.content || 'N/A'}</strong> with a final score of <strong>${sortedOptions[0]?.score.toFixed(2) || '0.00'}</strong>.</p>
+                        </div>
+                    </section>
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-semibold text-gray-700 border-b pb-2 mb-4">2. Final Results</h2>
+                        <table class="w-full text-left border-collapse">
+                            <thead class="bg-gray-100"><tr><th class="p-3 border">Rank</th><th class="p-3 border">Option</th><th class="p-3 border">Final Score</th></tr></thead>
+                            <tbody>${resultsTable}</tbody>
+                        </table>
+                    </section>
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-semibold text-gray-700 border-b pb-2 mb-4">3. Criteria Weights</h2>
+                        <table class="w-full text-left border-collapse">
+                            <thead class="bg-gray-100"><tr><th class="p-3 border">Criterion</th><th class="p-3 border">Weight</th></tr></thead>
+                            <tbody>${weightsTable}</tbody>
+                        </table>
+                    </section>
+                    <section class="mb-10" style="page-break-before: always;">
+                        <h2 class="text-2xl font-semibold text-gray-700 border-b pb-2 mb-4">4. Appendix</h2>
+                        <h3 class="text-xl font-semibold text-gray-700 mt-6 mb-2">A. Pairwise Comparison Matrix</h3>
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead class="bg-gray-100"><tr><th class="p-2 border"></th>${pairwiseHeader}</tr></thead>
+                            <tbody>${pairwiseBody}</tbody>
+                        </table>
+                        <h3 class="text-xl font-semibold text-gray-700 mt-8 mb-2">B. Option Evaluations</h3>
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead class="bg-gray-100"><tr><th class="p-2 border">Option</th>${evaluationsHeader}</tr></thead>
+                            <tbody>${evaluationsBody}</tbody>
+                        </table>
+                    </section>
+                </div>
+            </body>
+            </html>
+        `;
+    };
+
+    const openReport = () => {
+        const reportHtml = generateReportHTML();
+        const reportWindow = window.open('', '_blank');
+        reportWindow.document.write(reportHtml);
+        reportWindow.document.close();
     };
 
     const chartData = {
@@ -843,8 +895,11 @@ const Step5 = ({ objective, options, criteria, weights, utilityScores }) => {
                             </li>
                         ))}
                     </ol>
-                    <button onClick={exportToPDF} className="mt-6 bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors w-full">
-                        Export Full Report (PDF)
+                    <button onClick={openReport} className="mt-6 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors w-full flex items-center justify-center gap-2 text-lg">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                        </svg>
+                        Generate Printable Report
                     </button>
                 </div>
                 <div className="relative h-96">
@@ -918,9 +973,7 @@ function App() {
     };
 
     Promise.all([
-        loadScript("https://unpkg.com/react-beautiful-dnd@13.1.1/dist/react-beautiful-dnd.min.js"),
-        loadScript("https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js")
-            .then(() => loadScript("https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.js"))
+        loadScript("https://unpkg.com/react-beautiful-dnd@13.1.1/dist/react-beautiful-dnd.min.js")
     ])
     .then(() => {
         setScriptsLoaded(true);
@@ -989,7 +1042,16 @@ function App() {
                 <Step4 options={options} criteria={criteria} optionValues={optionValues} setOptionValues={setOptionValues} utilityFunctions={utilityFunctions} utilityScores={utilityScores} setUtilityScores={setUtilityScores} />
                 
                 {weights.length > 0 && Object.keys(utilityScores).length > 0 && (
-                  <Step5 objective={objective} options={options} criteria={criteria} weights={weights} utilityScores={utilityScores} />
+                  <Step5 
+                    objective={objective} 
+                    options={options} 
+                    criteria={criteria} 
+                    weights={weights} 
+                    utilityScores={utilityScores}
+                    pairwiseMatrix={pairwiseMatrix}
+                    utilityFunctions={utilityFunctions}
+                    optionValues={optionValues}
+                  />
                 )}
             </main>
         </div>
