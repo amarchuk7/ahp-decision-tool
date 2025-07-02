@@ -3,22 +3,26 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 // import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 // import { jsPDF } from 'jspdf';
 // import 'jspdf-autotable';
-import { Bar } from 'react-chartjs-2';
+import { Bar, Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
   BarElement,
+  LineElement,
+  PointElement,
   Title,
   Tooltip,
   Legend,
 } from 'chart.js';
 
-// Register Chart.js components needed for the Bar chart
+// Register Chart.js components
 ChartJS.register(
   CategoryScale,
   LinearScale,
   BarElement,
+  LineElement,
+  PointElement,
   Title,
   Tooltip,
   Legend
@@ -101,6 +105,54 @@ const calculateConsistency = (pairwiseMatrix, weights) => {
   return { cr, isConsistent: cr < 0.1 };
 };
 
+/**
+ * Safely evaluates a mathematical expression with a variable 'x'.
+ * @param {string} expr - The mathematical expression string.
+ * @param {number} x - The value to substitute for 'x'.
+ * @returns {number | null} The result of the expression or null if invalid.
+ */
+const safeEval = (expr, x) => {
+    try {
+        if (/[^x\d\s()+\-*/.]/.test(expr)) {
+            return null;
+        }
+        const func = new Function('x', `return ${expr}`);
+        const result = func(x);
+        return isNaN(result) ? null : result;
+    } catch (error) {
+        return null;
+    }
+};
+
+/**
+ * Performs linear interpolation for a value x based on a set of points.
+ * @param {number} x - The value to interpolate.
+ * @param {Array<{x: number, y: number}>} points - The sorted array of data points.
+ * @returns {number} The interpolated y value.
+ */
+const interpolate = (x, points) => {
+    if (points.length === 0) return 0;
+    if (points.length === 1) return points[0].y;
+    
+    const sortedPoints = points.slice().sort((a,b) => a.x - b.x);
+
+    if (x <= sortedPoints[0].x) return sortedPoints[0].y;
+    if (x >= sortedPoints[sortedPoints.length - 1].x) return sortedPoints[sortedPoints.length - 1].y;
+
+    let i = 0;
+    while (i < sortedPoints.length && sortedPoints[i].x < x) {
+        i++;
+    }
+
+    const p1 = sortedPoints[i - 1];
+    const p2 = sortedPoints[i];
+    
+    if (p1.x === p2.x) return p1.y;
+
+    const slope = (p2.y - p1.y) / (p2.x - p1.x);
+    return p1.y + slope * (x - p1.x);
+};
+
 
 // --- React Components ---
 
@@ -115,11 +167,10 @@ const Step1 = ({ criteria, setCriteria, options, setOptions }) => {
   const [newCriterion, setNewCriterion] = useState('');
   const [newOption, setNewOption] = useState('');
   
-  // Destructure from window object once available
   const { DragDropContext, Droppable, Draggable } = window.ReactBeautifulDnd || {};
 
   if (!DragDropContext) {
-      return <div>Loading drag and drop...</div>;
+      return <Card title="Step 1: Define Criteria & Options"><div>Loading drag and drop...</div></Card>;
   }
 
   const addCriterion = () => {
@@ -294,49 +345,191 @@ const Step2 = ({ criteria, pairwiseMatrix, onMatrixChange, weights, consistency 
     );
 };
 
-const Step3 = ({ criteria, utilityFunctions, setUtilityFunctions }) => {
-    const handleUtilityChange = (criterionId, point, value) => {
-        setUtilityFunctions(prev => ({
-            ...prev,
-            [criterionId]: { ...prev[criterionId], [point]: value }
-        }));
+const UtilityChart = ({ utilityFunction }) => {
+    const chartData = useMemo(() => {
+        const points = utilityFunction.points?.slice().sort((a, b) => a.x - b.x) || [];
+        
+        let labels, data;
+
+        if (utilityFunction.criterionType === 'quantitative' && utilityFunction.mode === 'formula' && utilityFunction.formulaString) {
+            const minX = points.length > 0 ? points[0].x : 0;
+            const maxX = points.length > 0 ? points[points.length - 1].x : 100;
+            const range = maxX - minX;
+            
+            labels = Array.from({length: 11}, (_, i) => minX + i * (range / 10));
+            data = labels.map(x => safeEval(utilityFunction.formulaString, x));
+        } else if (utilityFunction.criterionType === 'quantitative') {
+            labels = points.map(p => p.x);
+            data = points.map(p => p.y);
+        } else { // Qualitative
+            labels = utilityFunction.qualitativeLevels.map(l => l.label);
+            data = utilityFunction.qualitativeLevels.map(l => l.utility);
+        }
+
+        return {
+            labels,
+            datasets: [{
+                label: 'Utility',
+                data,
+                borderColor: 'rgb(75, 192, 192)',
+                backgroundColor: 'rgba(75, 192, 192, 0.5)',
+                tension: 0.1,
+            }]
+        };
+    }, [utilityFunction]);
+
+    const chartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { type: utilityFunction.criterionType === 'quantitative' ? 'linear' : 'category', title: { display: true, text: 'Criterion Value / Label' } },
+            y: { title: { display: true, text: 'Utility' }, min: 0, max: 100 }
+        }
     };
 
     return (
+        <div className="relative h-64 mt-4">
+            {utilityFunction.criterionType === 'quantitative' ? (
+                <Line data={chartData} options={chartOptions} />
+            ) : (
+                <Bar data={chartData} options={chartOptions} />
+            )}
+        </div>
+    );
+};
+
+const Step3 = ({ criteria, utilityFunctions, setUtilityFunctions }) => {
+    
+    const setFunctionData = (criterionId, data) => {
+        setUtilityFunctions(prev => ({
+            ...prev,
+            [criterionId]: { ...prev[criterionId], ...data }
+        }));
+    };
+
+    const addPoint = (criterionId) => {
+        const newPoints = [...utilityFunctions[criterionId].points, { x: 0, y: 0 }];
+        setFunctionData(criterionId, { points: newPoints });
+    };
+    
+    const addQualitativeLevel = (criterionId) => {
+        const newLevels = [...utilityFunctions[criterionId].qualitativeLevels, { label: 'New Level', utility: 50 }];
+        setFunctionData(criterionId, { qualitativeLevels: newLevels });
+    };
+
+    const updatePoint = (criterionId, index, field, value) => {
+        const newPoints = [...utilityFunctions[criterionId].points];
+        newPoints[index][field] = parseFloat(value) || 0;
+        setFunctionData(criterionId, { points: newPoints });
+    };
+    
+    const updateQualitativeLevel = (criterionId, index, field, value) => {
+        const newLevels = [...utilityFunctions[criterionId].qualitativeLevels];
+        newLevels[index][field] = field === 'utility' ? (parseFloat(value) || 0) : value;
+        setFunctionData(criterionId, { qualitativeLevels: newLevels });
+    };
+    
+    const removePoint = (criterionId, index) => {
+        const newPoints = [...utilityFunctions[criterionId].points];
+        newPoints.splice(index, 1);
+        setFunctionData(criterionId, { points: newPoints });
+    }
+    
+    const removeQualitativeLevel = (criterionId, index) => {
+        const newLevels = [...utilityFunctions[criterionId].qualitativeLevels];
+        newLevels.splice(index, 1);
+        setFunctionData(criterionId, { qualitativeLevels: newLevels });
+    }
+
+    const TabButton = ({ text, active, onClick }) => (
+        <button
+            onClick={onClick}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                active ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+            }`}
+        >
+            {text}
+        </button>
+    );
+
+    return (
         <Card title="Step 3: Define Utility Functions">
-            <p className="text-sm text-gray-600 mb-4">For each criterion, define the range of possible values. The 'Best' value will receive a utility score of 100, and the 'Worst' value will receive 0. The app assumes a linear relationship.</p>
-            <div className="grid md:grid-cols-2 gap-6">
+            <div className="space-y-8">
                 {criteria.map(criterion => (
                     <div key={criterion.id} className="p-4 bg-gray-50 rounded-lg">
-                        <h3 className="text-lg font-semibold text-gray-800">{criterion.content}</h3>
-                        <div className="mt-2 space-y-2">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Best Value (Utility = 100)</label>
-                                <input
-                                    type="number"
-                                    value={utilityFunctions[criterion.id]?.best ?? ''}
-                                    onChange={(e) => handleUtilityChange(criterion.id, 'best', e.target.value ? parseFloat(e.target.value) : '')}
-                                    className="w-full p-2 border rounded-lg mt-1"
-                                    placeholder="e.g., a low cost or high performance"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Worst Value (Utility = 0)</label>
-                                <input
-                                    type="number"
-                                    value={utilityFunctions[criterion.id]?.worst ?? ''}
-                                    onChange={(e) => handleUtilityChange(criterion.id, 'worst', e.target.value ? parseFloat(e.target.value) : '')}
-                                    className="w-full p-2 border rounded-lg mt-1"
-                                    placeholder="e.g., a high cost or low performance"
-                                />
-                            </div>
+                        <div className="flex justify-between items-center mb-3">
+                            <h3 className="text-xl font-semibold text-gray-800">{criterion.content}</h3>
+                            <select
+                                value={utilityFunctions[criterion.id].criterionType}
+                                onChange={(e) => setFunctionData(criterion.id, { criterionType: e.target.value })}
+                                className="p-2 border rounded-lg"
+                            >
+                                <option value="quantitative">Quantitative</option>
+                                <option value="qualitative">Qualitative</option>
+                            </select>
                         </div>
+                        
+                        {utilityFunctions[criterion.id].criterionType === 'quantitative' ? (
+                        <>
+                            <div className="border-b border-gray-300">
+                                <TabButton text="Formula" active={utilityFunctions[criterion.id].mode === 'formula'} onClick={() => setFunctionData(criterion.id, { mode: 'formula' })} />
+                                <TabButton text="Table" active={utilityFunctions[criterion.id].mode === 'table'} onClick={() => setFunctionData(criterion.id, { mode: 'table' })} />
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                                <div>
+                                    {utilityFunctions[criterion.id].mode === 'formula' && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700">Formula (e.g., 100 - x/1000)</label>
+                                            <input type="text" placeholder="Enter formula with 'x'" value={utilityFunctions[criterion.id].formulaString} onChange={(e) => setFunctionData(criterion.id, { formulaString: e.target.value })} className="w-full p-2 border rounded-lg mt-1"/>
+                                        </div>
+                                    )}
+                                    {utilityFunctions[criterion.id].mode === 'table' && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700">Define with Points</label>
+                                            <div className="space-y-2 mt-1 max-h-48 overflow-y-auto pr-2">
+                                                {utilityFunctions[criterion.id].points.map((point, index) => (
+                                                    <div key={index} className="flex items-center gap-2">
+                                                        <input type="number" value={point.x} onChange={(e) => updatePoint(criterion.id, index, 'x', e.target.value)} className="w-full p-1 border rounded-md" placeholder="Value"/>
+                                                        <span>→</span>
+                                                        <input type="number" value={point.y} onChange={(e) => updatePoint(criterion.id, index, 'y', e.target.value)} className="w-full p-1 border rounded-md" placeholder="Utility"/>
+                                                        <button onClick={() => removePoint(criterion.id, index)} className="text-red-500 hover:text-red-700">X</button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <button onClick={() => addPoint(criterion.id)} className="mt-2 text-sm bg-blue-500 text-white px-3 py-1 rounded-md hover:bg-blue-600">Add Point</button>
+                                        </div>
+                                    )}
+                                </div>
+                                <div><UtilityChart utilityFunction={utilityFunctions[criterion.id]} /></div>
+                            </div>
+                        </>
+                        ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700">Define Qualitative Levels</label>
+                                <div className="space-y-2 mt-1 max-h-48 overflow-y-auto pr-2">
+                                    {utilityFunctions[criterion.id].qualitativeLevels.map((level, index) => (
+                                        <div key={index} className="flex items-center gap-2">
+                                            <input type="text" value={level.label} onChange={(e) => updateQualitativeLevel(criterion.id, index, 'label', e.target.value)} className="w-full p-1 border rounded-md" placeholder="Label (e.g., High)"/>
+                                            <span>→</span>
+                                            <input type="number" value={level.utility} onChange={(e) => updateQualitativeLevel(criterion.id, index, 'utility', e.target.value)} className="w-full p-1 border rounded-md" placeholder="Utility"/>
+                                            <button onClick={() => removeQualitativeLevel(criterion.id, index)} className="text-red-500 hover:text-red-700">X</button>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button onClick={() => addQualitativeLevel(criterion.id)} className="mt-2 text-sm bg-blue-500 text-white px-3 py-1 rounded-md hover:bg-blue-600">Add Level</button>
+                            </div>
+                            <div><UtilityChart utilityFunction={utilityFunctions[criterion.id]} /></div>
+                        </div>
+                        )}
                     </div>
                 ))}
             </div>
         </Card>
     );
 };
+
 
 const Step4 = ({ options, criteria, optionValues, setOptionValues, utilityFunctions, setUtilityScores }) => {
     const handleValueChange = (optionId, criterionId, value) => {
@@ -351,28 +544,34 @@ const Step4 = ({ options, criteria, optionValues, setOptionValues, utilityFuncti
         options.forEach(option => {
             newUtilityScores[option.id] = {};
             criteria.forEach(criterion => {
-                const value = parseFloat(optionValues[option.id]?.[criterion.id]);
-                const best = utilityFunctions[criterion.id]?.best;
-                const worst = utilityFunctions[criterion.id]?.worst;
-                
-                if (!isNaN(value) && typeof best === 'number' && typeof worst === 'number') {
-                    let utility = 0;
-                    if (best !== worst) {
-                        // Handle cases where "best" is smaller than "worst" (e.g. cost)
-                        if (best < worst) {
-                            utility = 100 * (worst - value) / (worst - best);
-                        } else {
-                            utility = 100 * (value - worst) / (best - worst);
+                const func = utilityFunctions[criterion.id];
+                let utility = 0;
+
+                if (func) {
+                    if (func.criterionType === 'qualitative') {
+                        const selectedLabel = optionValues[option.id]?.[criterion.id];
+                        const level = func.qualitativeLevels.find(l => l.label === selectedLabel);
+                        if (level) {
+                            utility = level.utility;
+                        }
+                    } else {
+                        const value = parseFloat(optionValues[option.id]?.[criterion.id]);
+                        if (!isNaN(value)) {
+                            if (func.mode === 'formula' && func.formulaString) {
+                                const result = safeEval(func.formulaString, value);
+                                if (result !== null) utility = result;
+                            } else if (func.mode === 'table' && func.points && func.points.length > 0) {
+                                utility = interpolate(value, func.points);
+                            }
                         }
                     }
-                    newUtilityScores[option.id][criterion.id] = Math.max(0, Math.min(100, utility));
-                } else {
-                    newUtilityScores[option.id][criterion.id] = 0;
                 }
+                newUtilityScores[option.id][criterion.id] = Math.max(0, Math.min(100, utility));
             });
         });
         setUtilityScores(newUtilityScores);
     }, [options, criteria, optionValues, utilityFunctions, setUtilityScores]);
+
 
     useEffect(() => {
         calculateScores();
@@ -380,7 +579,7 @@ const Step4 = ({ options, criteria, optionValues, setOptionValues, utilityFuncti
 
     return (
         <Card title="Step 4: Evaluate Alternatives & Calculate Utility">
-            <p className="text-sm text-gray-600 mb-4">Enter the raw value for each option against each criterion. The utility scores will be calculated automatically based on the functions you defined in Step 3.</p>
+            <p className="text-sm text-gray-600 mb-4">Enter the value for each option against each criterion. For qualitative criteria, select the appropriate level from the dropdown.</p>
             <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                     <thead>
@@ -395,12 +594,25 @@ const Step4 = ({ options, criteria, optionValues, setOptionValues, utilityFuncti
                                 <td className="p-3 border-b border-gray-200 font-semibold">{option.content}</td>
                                 {criteria.map(criterion => (
                                     <td key={criterion.id} className="p-3 border-b border-gray-200">
-                                        <input
-                                            type="number"
-                                            value={optionValues[option.id]?.[criterion.id] || ''}
-                                            onChange={(e) => handleValueChange(option.id, criterion.id, e.target.value)}
-                                            className="w-full p-1 border rounded-md"
-                                        />
+                                        {utilityFunctions[criterion.id]?.criterionType === 'qualitative' ? (
+                                            <select
+                                                value={optionValues[option.id]?.[criterion.id] || ''}
+                                                onChange={(e) => handleValueChange(option.id, criterion.id, e.target.value)}
+                                                className="w-full p-1 border rounded-md"
+                                            >
+                                                <option value="">Select Level</option>
+                                                {utilityFunctions[criterion.id].qualitativeLevels.map(level => (
+                                                    <option key={level.label} value={level.label}>{level.label}</option>
+                                                ))}
+                                            </select>
+                                        ) : (
+                                            <input
+                                                type="number"
+                                                value={optionValues[option.id]?.[criterion.id] || ''}
+                                                onChange={(e) => handleValueChange(option.id, criterion.id, e.target.value)}
+                                                className="w-full p-1 border rounded-md"
+                                            />
+                                        )}
                                     </td>
                                 ))}
                             </tr>
@@ -568,17 +780,17 @@ function App() {
   const [consistency, setConsistency] = useState({ cr: 0, isConsistent: true });
   
   const [utilityFunctions, setUtilityFunctions] = useState({
-      'Risk': { best: 100, worst: 0 },
-      'SW Effort/Schedule': { best: 100, worst: 0 },
-      'HW Costs': { best: 300000, worst: 400000 },
-      'Future Adaptability': { best: 100, worst: 0 }
+      'Risk': { criterionType: 'qualitative', mode: 'table', formulaString: '', points: [], qualitativeLevels: [{label: 'Low', utility: 100}, {label: 'Medium', utility: 50}, {label: 'High', utility: 0}] },
+      'SW Effort/Schedule': { criterionType: 'quantitative', mode: 'table', formulaString: '', points: [{x: 0, y: 0}, {x: 100, y: 100}], qualitativeLevels: [] },
+      'HW Costs': { criterionType: 'quantitative', mode: 'formula', formulaString: '100 * (400000 - x) / (400000 - 300000)', points: [{x: 300000, y: 100}, {x: 400000, y: 0}], qualitativeLevels: [] },
+      'Future Adaptability': { criterionType: 'quantitative', mode: 'table', formulaString: '', points: [{x: 0, y: 0}, {x: 100, y: 100}], qualitativeLevels: [] }
   });
   
   const [optionValues, setOptionValues] = useState({
-    'Dual Primary': { 'Risk': 100, 'SW Effort/Schedule': 60, 'HW Costs': 380000, 'Future Adaptability': 60 },
-    'Compressed Dual Primary': { 'Risk': 100, 'SW Effort/Schedule': 80, 'HW Costs': 360000, 'Future Adaptability': 75 },
-    'Compressed Asymmetric Primary': { 'Risk': 100, 'SW Effort/Schedule': 70, 'HW Costs': 340000, 'Future Adaptability': 80 },
-    'Tele-assisted Secondary': { 'Risk': 80, 'SW Effort/Schedule': 60, 'HW Costs': 340000, 'Future Adaptability': 40 },
+    'Dual Primary': { 'Risk': 'Low', 'SW Effort/Schedule': 60, 'HW Costs': 380000, 'Future Adaptability': 60 },
+    'Compressed Dual Primary': { 'Risk': 'Low', 'SW Effort/Schedule': 80, 'HW Costs': 360000, 'Future Adaptability': 75 },
+    'Compressed Asymmetric Primary': { 'Risk': 'Low', 'SW Effort/Schedule': 70, 'HW Costs': 340000, 'Future Adaptability': 80 },
+    'Tele-assisted Secondary': { 'Risk': 'Medium', 'SW Effort/Schedule': 60, 'HW Costs': 340000, 'Future Adaptability': 40 },
   });
   
   const [utilityScores, setUtilityScores] = useState({});
@@ -590,21 +802,25 @@ function App() {
             script.src = src;
             script.async = true;
             script.onload = resolve;
-            script.onerror = reject;
+            script.onerror = (err) => {
+                console.error(`Error loading script: ${src}`);
+                reject(err);
+            };
             document.head.appendChild(script);
         });
     };
 
-    // Load jspdf first, then the autotable plugin. dnd can load in parallel.
     Promise.all([
-        loadScript("https://cdnjs.cloudflare.com/ajax/libs/react-beautiful-dnd/13.1.1/react-beautiful-dnd.min.js"),
-        loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js")
-            .then(() => loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"))
+        loadScript("https://unpkg.com/react-beautiful-dnd@13.1.1/dist/react-beautiful-dnd.min.js"),
+        loadScript("https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js")
+            .then(() => loadScript("https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.js"))
     ])
     .then(() => {
         setScriptsLoaded(true);
     })
-    .catch(error => console.error("Failed to load external scripts", error));
+    .catch(error => {
+        console.error("Failed to load external scripts.", error);
+    });
 
   }, []);
 
@@ -612,7 +828,6 @@ function App() {
       setPairwiseMatrix(newMatrix);
   };
   
-  // Recalculate weights and consistency whenever the matrix changes
   useEffect(() => {
     const newWeights = calculateWeights(pairwiseMatrix);
     setWeights(newWeights);
@@ -620,7 +835,6 @@ function App() {
     setConsistency(newConsistency);
   }, [pairwiseMatrix]);
 
-  // Adjust matrix size when criteria change
   useEffect(() => {
     const n = criteria.length;
     setPairwiseMatrix(oldMatrix => {
@@ -632,6 +846,16 @@ function App() {
             }
         }
         return newMatrix;
+    });
+    
+    setUtilityFunctions(prevFuncs => {
+        const newFuncs = {...prevFuncs};
+        criteria.forEach(c => {
+            if (!newFuncs[c.id]) {
+                newFuncs[c.id] = { criterionType: 'quantitative', mode: 'table', formulaString: '', points: [], qualitativeLevels: [] };
+            }
+        });
+        return newFuncs;
     });
   }, [criteria]);
   
