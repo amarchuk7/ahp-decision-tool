@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AHP Report Builder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        @media print {
+            body * { visibility: hidden; }
+            #print-area, #print-area * { visibility: visible; }
+            #print-area { position: absolute; left: 0; top: 0; width: 100%; }
+            .no-print { display: none; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div id="app" class="max-w-4xl mx-auto p-8">
+        <div class="no-print">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">AHP Report Builder</h1>
+            <p class="text-gray-600 mb-8">Enter your data below to generate the analysis report.</p>
+        </div>
+
+        <!-- Step 1: Goal and Options -->
+        <div class="bg-white p-6 rounded-lg shadow-sm mb-8 no-print">
+            <h2 class="text-xl font-bold border-b pb-2 mb-4">Step 1: Goal, Criteria, and Alternatives</h2>
+            <div class="mb-4">
+                <label for="decision-goal" class="block font-semibold mb-1">Decision Goal</label>
+                <input type="text" id="decision-goal" class="w-full p-2 border rounded-md">
+            </div>
+            <div class="grid md:grid-cols-2 gap-6">
+                <div>
+                    <label class="block font-semibold mb-1">Criteria</label>
+                    <div id="criteria-list" class="space-y-2"></div>
+                    <div class="flex gap-2 mt-2">
+                        <input type="text" id="new-criterion" placeholder="New criterion name" class="flex-grow p-2 border rounded-md">
+                        <button onclick="app.addItem('criteria')" class="bg-blue-600 text-white font-semibold px-4 py-2 rounded-md hover:bg-blue-700">+</button>
+                    </div>
+                </div>
+                <div>
+                    <label class="block font-semibold mb-1">Alternatives</label>
+                    <div id="alternatives-list" class="space-y-2"></div>
+                    <div class="flex gap-2 mt-2">
+                        <input type="text" id="new-alternative" placeholder="New alternative name" class="flex-grow p-2 border rounded-md">
+                        <button onclick="app.addItem('alternatives')" class="bg-blue-600 text-white font-semibold px-4 py-2 rounded-md hover:bg-blue-700">+</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: Utility Functions & Data Input -->
+        <div class="bg-white p-6 rounded-lg shadow-sm mb-8 no-print">
+            <h2 class="text-xl font-bold border-b pb-2 mb-4">Step 2: Utility Functions & Data Input</h2>
+            <div id="data-input-section"></div>
+        </div>
+
+        <!-- Step 3: Pairwise Comparison -->
+        <div class="bg-white p-6 rounded-lg shadow-sm mb-8 no-print">
+            <h2 class="text-xl font-bold border-b pb-2 mb-4">Step 3: Compare Criteria Importance</h2>
+            <div id="pairwise-section"></div>
+        </div>
+        
+        <div class="text-center mb-8 no-print">
+             <button onclick="window.print()" class="bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700">Generate & Print Report</button>
+        </div>
+
+        <!-- Report Area -->
+        <div id="print-area" class="bg-white p-8 shadow-lg">
+            <!-- This content will be populated by the script -->
+        </div>
+    </div>
+
+    <script>
+        const app = {
+            state: {
+                goal: 'Select the best fallback architecture design',
+                criteria: [
+                    { name: 'Risk', formula: '100 - x' },
+                    { name: 'SW Effort/Schedule', formula: '100 - x' },
+                    { name: 'HW Cost', formula: '100 - x' },
+                    { name: 'Future Adaptability', formula: 'x' },
+                ],
+                alternatives: [
+                    { name: 'Dual Primary', values: { 'Risk': 10, 'SW Effort/Schedule': 80, 'HW Cost': 90, 'Future Adaptability': 70 } },
+                    { name: 'Dual Primary with limitation', values: { 'Risk': 20, 'SW Effort/Schedule': 60, 'HW Cost': 70, 'Future Adaptability': 80 } },
+                    { name: 'Asymmetric Primary', values: { 'Risk': 40, 'SW Effort/Schedule': 40, 'HW Cost': 50, 'Future Adaptability': 50 } },
+                    { name: 'Tele-assisted Secondary', values: { 'Risk': 60, 'SW Effort/Schedule': 20, 'HW Cost': 20, 'Future Adaptability': 30 } },
+                ],
+                pairwiseMatrix: [],
+            },
+
+            init() {
+                this.initializeMatrix();
+                this.render();
+                document.getElementById('decision-goal').addEventListener('input', (e) => {
+                    this.state.goal = e.target.value;
+                    this.renderReport();
+                });
+            },
+
+            initializeMatrix() {
+                const size = this.state.criteria.length;
+                this.state.pairwiseMatrix = Array(size).fill(0).map(() => Array(size).fill(1));
+            },
+            
+            addItem(type) {
+                const input = document.getElementById(`new-${type.slice(0, -1)}`);
+                if (!input.value.trim()) return;
+
+                if (type === 'criteria') {
+                    this.state.criteria.push({ name: input.value, formula: 'x' });
+                } else {
+                    const newValues = {};
+                    this.state.criteria.forEach(c => newValues[c.name] = 0);
+                    this.state.alternatives.push({ name: input.value, values: newValues });
+                }
+                input.value = '';
+                this.initializeMatrix();
+                this.render();
+            },
+
+            removeItem(type, index) {
+                if (type === 'criteria') {
+                    this.state.criteria.splice(index, 1);
+                } else {
+                    this.state.alternatives.splice(index, 1);
+                }
+                this.initializeMatrix();
+                this.render();
+            },
+
+            updateState(path, value) {
+                let obj = this.state;
+                for(let i = 0; i < path.length - 1; i++) {
+                    obj = obj[path[i]];
+                }
+                obj[path[path.length - 1]] = value;
+                
+                if(path.includes('pairwiseMatrix')) {
+                    const [_, i, j] = path;
+                    this.state.pairwiseMatrix[j][i] = 1 / value;
+                }
+
+                this.render();
+            },
+
+            calculate() {
+                const { criteria, alternatives, pairwiseMatrix } = this.state;
+                if (criteria.length === 0 || alternatives.length === 0) return null;
+
+                // Normalize pairwise matrix and get weights
+                const n = criteria.length;
+                const columnSums = Array(n).fill(0);
+                for (let j = 0; j < n; j++) {
+                    for (let i = 0; i < n; i++) columnSums[j] += pairwiseMatrix[i][j];
+                }
+                const normMatrix = pairwiseMatrix.map(row => row.map((val, j) => columnSums[j] === 0 ? 1/n : val / columnSums[j]));
+                const weights = normMatrix.map(row => row.reduce((a, b) => a + b, 0) / n);
+
+                // Calculate utility scores
+                const utilityScores = alternatives.map(alt => {
+                    const scores = {};
+                    criteria.forEach(crit => {
+                        try {
+                            const formula = crit.formula.toLowerCase().replace(/x/g, alt.values[crit.name] || 0);
+                            scores[crit.name] = Math.max(0, Math.min(100, new Function(`return ${formula}`)()));
+                        } catch {
+                            scores[crit.name] = 0;
+                        }
+                    });
+                    return scores;
+                });
+                
+                // Calculate final scores
+                const finalScores = alternatives.map((alt, altIndex) => {
+                    return criteria.reduce((total, crit, critIndex) => {
+                        return total + (weights[critIndex] * (utilityScores[altIndex][crit.name] / 100));
+                    }, 0);
+                });
+
+                const ranked = alternatives.map((alt, i) => ({ ...alt, score: finalScores[i] })).sort((a, b) => b.score - a.score);
+                
+                return { weights, ranked, utilityScores };
+            },
+
+            render() {
+                document.getElementById('decision-goal').value = this.state.goal;
+                this.renderLists();
+                this.renderDataInputs();
+                this.renderPairwise();
+                this.renderReport();
+            },
+
+            renderLists() {
+                const critList = document.getElementById('criteria-list');
+                critList.innerHTML = this.state.criteria.map((c, i) => `
+                    <div class="flex items-center gap-2">
+                        <input class="flex-grow p-2 border rounded-md" value="${c.name}" oninput="app.updateState(['criteria', ${i}, 'name'], this.value)">
+                        <button onclick="app.removeItem('criteria', ${i})" class="text-red-500 font-bold px-2">X</button>
+                    </div>
+                `).join('');
+
+                const altList = document.getElementById('alternatives-list');
+                altList.innerHTML = this.state.alternatives.map((a, i) => `
+                    <div class="flex items-center gap-2">
+                        <input class="flex-grow p-2 border rounded-md" value="${a.name}" oninput="app.updateState(['alternatives', ${i}, 'name'], this.value)">
+                        <button onclick="app.removeItem('alternatives', ${i})" class="text-red-500 font-bold px-2">X</button>
+                    </div>
+                `).join('');
+            },
+
+            renderDataInputs() {
+                const container = document.getElementById('data-input-section');
+                let formulaHtml = '<h3 class="font-semibold mb-2">Utility Functions</h3>';
+                formulaHtml += this.state.criteria.map((c, i) => `
+                    <div class="flex items-center gap-2 mb-2">
+                        <label class="w-1/3">${c.name}</label>
+                        <input class="flex-grow p-2 border rounded-md" value="${c.formula}" oninput="app.updateState(['criteria', ${i}, 'formula'], this.value)">
+                    </div>
+                `).join('');
+
+                let dataTableHtml = '<h3 class="font-semibold mt-6 mb-2">Data Input</h3><div class="overflow-x-auto"><table class="w-full text-left"><thead><tr><th class="p-2">Alternative</th>';
+                this.state.criteria.forEach(c => dataTableHtml += `<th class="p-2">${c.name}</th>`);
+                dataTableHtml += '</tr></thead><tbody>';
+                this.state.alternatives.forEach((alt, altIdx) => {
+                    dataTableHtml += `<tr><td class="p-2 font-semibold">${alt.name}</td>`;
+                    this.state.criteria.forEach(crit => {
+                        dataTableHtml += `<td class="p-1"><input type="number" class="w-24 p-2 border rounded-md" value="${alt.values[crit.name] || 0}" oninput="app.updateState(['alternatives', ${altIdx}, 'values', '${crit.name}'], this.value)"></td>`;
+                    });
+                    dataTableHtml += '</tr>';
+                });
+                dataTableHtml += '</tbody></table></div>';
+                
+                container.innerHTML = formulaHtml + dataTableHtml;
+            },
+
+            renderPairwise() {
+                const container = document.getElementById('pairwise-section');
+                let table = '<div class="overflow-x-auto"><table class="w-full text-center"><thead><tr><th class="p-1 border"></th>';
+                this.state.criteria.forEach(c => table += `<th class="p-1 border text-xs">${c.name}</th>`);
+                table += '</tr></thead><tbody>';
+                this.state.criteria.forEach((c1, i) => {
+                    table += `<tr><th class="p-1 border text-left text-xs">${c1.name}</th>`;
+                    this.state.criteria.forEach((c2, j) => {
+                        table += `<td class="p-1 border"><input type="number" class="w-20 p-1 text-center border rounded-md" value="${this.state.pairwiseMatrix[i][j].toFixed(2)}" oninput="app.updateState(['pairwiseMatrix', ${i}, ${j}], parseFloat(this.value))" ${i === j ? 'disabled' : ''}></td>`;
+                    });
+                    table += '</tr>';
+                });
+                table += '</tbody></table></div>';
+                container.innerHTML = table;
+            },
+
+            renderReport() {
+                const results = this.calculate();
+                if (!results) {
+                    document.getElementById('print-area').innerHTML = 'Please define criteria and alternatives.';
+                    return;
+                }
+                const { weights, ranked, utilityScores } = results;
+
+                const executiveSummary = `
+                    <h1 class="text-2xl font-bold mb-4">Decision Analysis Report</h1>
+                    <h2 class="text-xl font-semibold mb-4">1. Executive Summary</h2>
+                    <p><strong>Decision Goal:</strong> ${this.state.goal}</p>
+                    <p><strong>Recommendation:</strong> Based on the criteria and weightings provided, the recommended option is <strong>${ranked[0].name}</strong> with a final score of <strong>${ranked[0].score.toFixed(3)}</strong>.</p>
+                `;
+
+                const optionsConsidered = `<h2 class="text-xl font-semibold mt-6 mb-2">2. Options Considered</h2><ul>${this.state.alternatives.map(a => `<li>${a.name}</li>`).join('')}</ul>`;
+                
+                let resultsTable = `<h2 class="text-xl font-semibold mt-6 mb-2">3. Analysis & Results</h2><table class="w-full text-left border-collapse"><thead><tr class="border-b"><th class="p-2 border">Option</th>`;
+                this.state.criteria.forEach(c => resultsTable += `<th class="p-2 border">${c.name}</th>`);
+                resultsTable += `<th class="p-2 border">Total Score</th></tr></thead><tbody>`;
+                ranked.sort((a,b) => this.state.alternatives.indexOf(a) - this.state.alternatives.indexOf(b)).forEach(alt => {
+                    const altScores = utilityScores[this.state.alternatives.findIndex(a => a.name === alt.name)];
+                    resultsTable += `<tr class="border-b"><td class="p-2 border font-semibold">${alt.name}</td>`;
+                    this.state.criteria.forEach(c => resultsTable += `<td class="p-2 border">${(altScores[c.name]/100 * weights[this.state.criteria.findIndex(cr => cr.name === c.name)]).toFixed(3)}</td>`);
+                    resultsTable += `<td class="p-2 border font-bold">${alt.score.toFixed(3)}</td></tr>`;
+                });
+                resultsTable += `</tbody></table>`;
+
+                let appendix = `<h2 class="text-xl font-semibold mt-6 mb-2">4. Appendix</h2><h3 class="text-lg font-semibold mt-4 mb-2">4.1. Criteria Weights</h3><table class="w-1/2">`;
+                this.state.criteria.forEach((c, i) => appendix += `<tr><td class="pr-4">${c.name}</td><td>${(weights[i] * 100).toFixed(2)}%</td></tr>`);
+                appendix += `</table>`;
+
+                appendix += `<h3 class="text-lg font-semibold mt-4 mb-2">4.2. Pairwise Comparison Matrix</h3><table class="text-center"><thead><tr><th class="p-1 border"></th>`;
+                this.state.criteria.forEach(c => appendix += `<th class="p-1 border text-xs">${c.name}</th>`);
+                appendix += `</tr></thead><tbody>`;
+                this.state.criteria.forEach((c1, i) => {
+                    appendix += `<tr><th class="p-1 border text-left text-xs">${c1.name}</th>`;
+                    this.state.criteria.forEach((c2, j) => {
+                        appendix += `<td class="p-1 border">${this.state.pairwiseMatrix[i][j].toFixed(2)}</td>`;
+                    });
+                    appendix += `</tr>`;
+                });
+                appendix += `</tbody></table>`;
+
+                appendix += `<h3 class="text-lg font-semibold mt-4 mb-2">4.3. Utility Functions</h3>`;
+                this.state.criteria.forEach(c => appendix += `<p><strong>${c.name}</strong> - Type: Quantitative (Formula), Utility = ${c.formula}</p>`);
+
+                document.getElementById('print-area').innerHTML = `<div class="space-y-4">${executiveSummary}${optionsConsidered}${resultsTable}${appendix}</div>`;
+            }
+        };
+
+        app.init();
+    </script>
+</body>
+</html>
