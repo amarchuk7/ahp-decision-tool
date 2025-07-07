@@ -1,0 +1,67 @@
+Instructions to run this tool locally
+
+Of course. Here are the instructions for setting up and running the project on your local machine using Visual Studio Code.
+
+Prerequisites
+Node.js and npm: Make sure you have Node.js installed. You can download it from nodejs.org.
+
+Visual Studio Code: Download and install VS Code from code.visualstudio.com.
+
+Git: Ensure you have Git installed. You can get it from git-scm.com.
+
+Step-by-Step Guide
+1. Create the React Project
+Open your terminal (or Command Prompt).
+
+Navigate to the directory where you want to store your project.
+
+Run the following command to create the project:
+
+Bash
+
+npx create-react-app ahp-decision-tool
+Navigate into the newly created project folder:
+
+Bash
+
+cd ahp-decision-tool
+2. Install Dependencies
+Inside the ahp-decision-tool folder, run this command to install the required libraries:
+
+Bash
+
+npm install react-beautiful-dnd react-chartjs-2 chart.js
+Next, install the packages needed for Tailwind CSS:
+
+Bash
+
+npm install -D tailwindcss postcss autoprefixer
+Generate the Tailwind configuration files:
+
+Bash
+
+npx tailwindcss init -p
+3. Add the Project Files
+Open the ahp-decision-tool folder in Visual Studio Code.
+
+Using the code from the Canvas, replace the contents of the following files:
+
+package.json
+
+tailwind.config.js
+
+postcss.config.js
+
+public/index.html
+
+src/index.css
+
+src/App.js
+
+4. Run the Application
+In your terminal (still inside the project folder), run the start command:
+
+Bash
+
+npm start
+This will launch the application in your web browser, typically at http://localhost:3000.
