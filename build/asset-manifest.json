@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/ahp-decision-tool/static/css/main.e6c13ad2.css",
+    "main.js": "/ahp-decision-tool/static/js/main.89fd37c4.js",
+    "index.html": "/ahp-decision-tool/index.html",
+    "main.e6c13ad2.css.map": "/ahp-decision-tool/static/css/main.e6c13ad2.css.map",
+    "main.89fd37c4.js.map": "/ahp-decision-tool/static/js/main.89fd37c4.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.e6c13ad2.css",
+    "static/js/main.89fd37c4.js"
+  ]
+}
