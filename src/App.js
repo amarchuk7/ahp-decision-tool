@@ -1034,7 +1034,7 @@ const ReportPage = ({ data, onBack }) => {
 };
 
 function App() {
-    const [objective, setObjective] = useState("Choose the best car for a family");
+    const [objective, setObjective] = useState("<DESCRIPTION> Decision making to select the best option");
   
     const [criteria, setCriteria] = useState([
         { id: 'Risk', content: 'Risk' },
@@ -1070,6 +1070,15 @@ function App() {
     
     const [optionValues, setOptionValues] = useState({});
     const [view, setView] = useState('main'); // 'main' or 'report'
+
+    useEffect(() => {
+        if (criteria.length > 0 && pairwiseMatrix.length === criteria.length) {
+            const newWeights = calculateWeights(normalizeMatrix(pairwiseMatrix));
+            setWeights(newWeights);
+            const newConsistency = checkConsistency(pairwiseMatrix);
+            setConsistency(newConsistency);
+        }
+    }, [pairwiseMatrix, criteria]);
 
     const finalScores = useMemo(() => {
         if (criteria.length === 0 || options.length === 0) return [];
