@@ -1164,6 +1164,9 @@ function App() {
                 <header className="text-center">
                     <h1 className="text-4xl md:text-5xl font-extrabold text-green-800">AHP Decision-Making Tool</h1>
                     <p className="text-lg text-green-700 mt-2">A structured approach to complex decision-making.</p>
+                    <p className="text-sm text-gray-600 mt-2">
+                        Learn more about the Analytic Hierarchy Process (AHP) in this <a href={process.env.PUBLIC_URL + '/Analytic-Hierarchy-Process-Tool-v2_dl.pdf'} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">guide</a>.
+                    </p>
                 </header>
             </div>
             <div className="container mx-auto p-4 md:p-8">
