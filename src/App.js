@@ -15,6 +15,8 @@ import {
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 
+const APP_VERSION = "0.8.0";
+
 // Register Chart.js components
 ChartJS.register(
   CategoryScale,
@@ -222,6 +224,170 @@ const checkConsistency = (matrix) => {
     return calculateConsistency(matrix, weights);
 };
 
+
+const SessionManager = ({ 
+    onSave, 
+    onLoad, 
+    onNewSession, 
+    onSaveToLocal, 
+    onLoadFromLocal, 
+    onDeleteSession, 
+    getSavedSessions 
+}) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [sessionName, setSessionName] = useState('');
+    const [savedSessions, setSavedSessions] = useState([]);
+
+    useEffect(() => {
+        if (isOpen) {
+            setSavedSessions(getSavedSessions());
+        }
+    }, [isOpen, getSavedSessions]);
+
+    const handleSaveToLocal = () => {
+        onSaveToLocal(sessionName);
+        setSessionName('');
+        setSavedSessions(getSavedSessions());
+    };
+
+    const handleLoadFromLocal = (index) => {
+        onLoadFromLocal(index);
+        setIsOpen(false);
+    };
+
+    const handleDeleteSession = (index) => {
+        onDeleteSession(index);
+        setSavedSessions(getSavedSessions());
+    };
+
+    if (!isOpen) {
+        return (
+            <div className="fixed top-4 right-4 z-50">
+                <button
+                    onClick={() => setIsOpen(true)}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors shadow-lg flex items-center gap-2"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Session
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg max-w-md w-full max-h-96 overflow-y-auto">
+                <div className="p-6">
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-xl font-bold text-gray-800">Session Manager</h2>
+                        <button
+                            onClick={() => setIsOpen(false)}
+                            className="text-gray-500 hover:text-gray-700"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div className="space-y-4">
+                        {/* Quick Actions */}
+                        <div className="border-b pb-4">
+                            <h3 className="font-semibold text-gray-700 mb-2">Quick Actions</h3>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    onClick={onNewSession}
+                                    className="bg-red-500 text-white px-3 py-2 rounded hover:bg-red-600 transition-colors text-sm"
+                                >
+                                    New Session
+                                </button>
+                                <label className="bg-green-500 text-white px-3 py-2 rounded hover:bg-green-600 transition-colors text-sm cursor-pointer text-center">
+                                    Load File
+                                    <input
+                                        type="file"
+                                        accept=".json"
+                                        onChange={onLoad}
+                                        className="hidden"
+                                    />
+                                </label>
+                            </div>
+                        </div>
+
+                        {/* Export */}
+                        <div className="border-b pb-4">
+                            <h3 className="font-semibold text-gray-700 mb-2">Export</h3>
+                            <button
+                                onClick={onSave}
+                                className="w-full bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 transition-colors text-sm"
+                            >
+                                Download Session File
+                            </button>
+                        </div>
+
+                        {/* Save Session */}
+                        <div className="border-b pb-4">
+                            <h3 className="font-semibold text-gray-700 mb-2">Save Current Session</h3>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={sessionName}
+                                    onChange={(e) => setSessionName(e.target.value)}
+                                    placeholder="Session name..."
+                                    className="flex-1 px-3 py-2 border rounded text-sm"
+                                    onKeyPress={(e) => e.key === 'Enter' && handleSaveToLocal()}
+                                />
+                                <button
+                                    onClick={handleSaveToLocal}
+                                    disabled={!sessionName.trim()}
+                                    className="bg-purple-500 text-white px-3 py-2 rounded hover:bg-purple-600 transition-colors text-sm disabled:bg-gray-300"
+                                >
+                                    Save
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Saved Sessions */}
+                        <div>
+                            <h3 className="font-semibold text-gray-700 mb-2">Saved Sessions</h3>
+                            {savedSessions.length === 0 ? (
+                                <p className="text-gray-500 text-sm">No saved sessions</p>
+                            ) : (
+                                <div className="space-y-2 max-h-32 overflow-y-auto">
+                                    {savedSessions.map((session, index) => (
+                                        <div key={index} className="flex items-center justify-between bg-gray-50 p-2 rounded">
+                                            <div className="flex-1">
+                                                <p className="font-medium text-sm">{session.name}</p>
+                                                <p className="text-xs text-gray-500">
+                                                    {new Date(session.timestamp).toLocaleDateString()}
+                                                </p>
+                                            </div>
+                                            <div className="flex gap-1">
+                                                <button
+                                                    onClick={() => handleLoadFromLocal(index)}
+                                                    className="bg-green-500 text-white px-2 py-1 rounded text-xs hover:bg-green-600"
+                                                >
+                                                    Load
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteSession(index)}
+                                                    className="bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600"
+                                                >
+                                                    Delete
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // --- React Components ---
 
@@ -1171,13 +1337,67 @@ function App() {
         return enrichedOptions.sort((a, b) => b.score - a.score);
     }, [options, finalScores]);
 
+    // Auto-save to localStorage
+    useEffect(() => {
+        const sessionData = {
+            objective,
+            criteria,
+            options,
+            pairwiseMatrix,
+            utilityFunctions,
+            optionValues,
+            timestamp: new Date().toISOString()
+        };
+        
+        try {
+            localStorage.setItem('ahp-session-autosave', JSON.stringify(sessionData));
+        } catch (error) {
+            console.warn('Could not save to localStorage:', error);
+        }
+    }, [objective, criteria, options, pairwiseMatrix, utilityFunctions, optionValues]);
+
+    // Load from localStorage on component mount
+    useEffect(() => {
+        try {
+            const savedData = localStorage.getItem('ahp-session-autosave');
+            if (savedData) {
+                const data = JSON.parse(savedData);
+                // Only load if the session is less than 7 days old
+                const sessionAge = new Date() - new Date(data.timestamp);
+                const sevenDays = 7 * 24 * 60 * 60 * 1000;
+                
+                if (sessionAge < sevenDays && data.criteria && data.criteria.length > 0) {
+                    setObjective(data.objective || "");
+                    setCriteria(data.criteria);
+                    setOptions(data.options || []);
+                    setPairwiseMatrix(data.pairwiseMatrix || []);
+                    setUtilityFunctions(data.utilityFunctions || {});
+                    setOptionValues(data.optionValues || {});
+                }
+            }
+        } catch (error) {
+            console.warn('Could not load from localStorage:', error);
+        }
+    }, []); // Only run on mount
+
     const handleSave = () => {
-        const dataStr = JSON.stringify({ objective, criteria, options, pairwiseMatrix, utilityFunctions, optionValues });
+        const sessionData = {
+            objective,
+            criteria,
+            options,
+            pairwiseMatrix,
+            utilityFunctions,
+            optionValues,
+            timestamp: new Date().toISOString(),
+            version: '1.0'
+        };
+        
+        const dataStr = JSON.stringify(sessionData, null, 2);
         const blob = new Blob([dataStr], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "ahp_data.json";
+        a.download = `ahp-decision-${new Date().toISOString().split('T')[0]}.json`;
         a.click();
         URL.revokeObjectURL(url);
     };
@@ -1185,21 +1405,120 @@ function App() {
     const handleLoad = (event) => {
         const file = event.target.files[0];
         if (!file) return;
+        
         const reader = new FileReader();
         reader.onload = (e) => {
             try {
                 const data = JSON.parse(e.target.result);
-                setObjective(data.objective);
+                
+                // Validate required fields
+                if (!data.criteria || !Array.isArray(data.criteria)) {
+                    alert('Invalid file format: missing criteria data');
+                    return;
+                }
+                
+                setObjective(data.objective || "");
                 setCriteria(data.criteria);
-                setOptions(data.options);
-                setPairwiseMatrix(data.pairwiseMatrix);
-                setUtilityFunctions(data.utilityFunctions);
-                setOptionValues(data.optionValues);
+                setOptions(data.options || []);
+                setPairwiseMatrix(data.pairwiseMatrix || []);
+                setUtilityFunctions(data.utilityFunctions || {});
+                setOptionValues(data.optionValues || {});
+                
+                // Show success message
+                alert('Session loaded successfully!');
+                
             } catch (error) {
                 console.error("Error loading file:", error);
+                alert('Error loading file. Please check the file format.');
             }
         };
         reader.readAsText(file);
+    };
+
+    const handleNewSession = () => {
+        if (window.confirm('Are you sure you want to start a new session? All current data will be lost.')) {
+            setObjective("");
+            setCriteria([]);
+            setOptions([]);
+            setPairwiseMatrix([]);
+            setUtilityFunctions({});
+            setOptionValues({});
+            setUtilityScores({});
+            localStorage.removeItem('ahp-session-autosave');
+        }
+    };
+
+    const saveToLocalStorage = (name) => {
+        if (!name.trim()) {
+            alert('Please enter a session name');
+            return;
+        }
+        
+        const sessionData = {
+            name: name.trim(),
+            objective,
+            criteria,
+            options,
+            pairwiseMatrix,
+            utilityFunctions,
+            optionValues,
+            timestamp: new Date().toISOString(),
+            version: '1.0'
+        };
+        
+        try {
+            const savedSessions = JSON.parse(localStorage.getItem('ahp-saved-sessions') || '[]');
+            savedSessions.push(sessionData);
+            localStorage.setItem('ahp-saved-sessions', JSON.stringify(savedSessions));
+            alert(`Session "${name}" saved successfully!`);
+        } catch (error) {
+            console.warn('Could not save session:', error);
+            alert('Error saving session. Storage might be full.');
+        }
+    };
+
+    const loadFromLocalStorage = (sessionIndex) => {
+        try {
+            const savedSessions = JSON.parse(localStorage.getItem('ahp-saved-sessions') || '[]');
+            const session = savedSessions[sessionIndex];
+            
+            if (session) {
+                setObjective(session.objective || "");
+                setCriteria(session.criteria || []);
+                setOptions(session.options || []);
+                setPairwiseMatrix(session.pairwiseMatrix || []);
+                setUtilityFunctions(session.utilityFunctions || {});
+                setOptionValues(session.optionValues || {});
+                alert(`Session "${session.name}" loaded successfully!`);
+            }
+        } catch (error) {
+            console.warn('Could not load session:', error);
+            alert('Error loading session.');
+        }
+    };
+
+    const getSavedSessions = () => {
+        try {
+            return JSON.parse(localStorage.getItem('ahp-saved-sessions') || '[]');
+        } catch (error) {
+            return [];
+        }
+    };
+
+    const deleteSavedSession = (sessionIndex) => {
+        try {
+            const savedSessions = JSON.parse(localStorage.getItem('ahp-saved-sessions') || '[]');
+            const sessionName = savedSessions[sessionIndex]?.name || 'Unknown';
+            
+            if (window.confirm(`Are you sure you want to delete session "${sessionName}"?`)) {
+                savedSessions.splice(sessionIndex, 1);
+                localStorage.setItem('ahp-saved-sessions', JSON.stringify(savedSessions));
+                alert(`Session "${sessionName}" deleted successfully!`);
+            }
+        } catch (error) {
+            console.warn('Could not delete session:', error);
+            alert('Error deleting session.');
+        }
     };
 
     const handleMatrixChange = (newMatrix) => {
@@ -1228,6 +1547,25 @@ function App() {
     return (
         <DndProvider backend={HTML5Backend}>
         <div className="bg-gray-50 min-h-screen font-sans">
+            {/* Session Manager */}
+            <SessionManager
+                onSave={handleSave}
+                onLoad={handleLoad}
+                onNewSession={handleNewSession}
+                onSaveToLocal={saveToLocalStorage}
+                onLoadFromLocal={loadFromLocalStorage}
+                onDeleteSession={deleteSavedSession}
+                getSavedSessions={getSavedSessions}
+            />
+            
+            {/* Auto-save indicator */}
+            <div className="fixed top-4 left-4 z-40">
+                <div className="bg-green-100 border border-green-400 text-green-700 px-3 py-1 rounded-lg text-xs flex items-center gap-2">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    Auto-saving...
+                </div>
+            </div>
+
             <div className="bg-green-50 border-b-2 border-green-200 p-4">
                 <header className="text-center">
                     <h1 className="text-4xl md:text-5xl font-extrabold text-green-800">AHP Decision-Making Tool</h1>
@@ -1259,6 +1597,16 @@ function App() {
                       />
                     )}
                 </main>
+                
+                {/* Footer with version */}
+                <footer className="mt-12 py-4 border-t border-gray-200">
+                    <div className="text-center text-xs text-gray-500">
+                        AHP Decision-Making Tool v{APP_VERSION} | Built with React |
+                        <a href={process.env.PUBLIC_URL + '/Analytic-Hierarchy-Process-Tool-v2_dl.pdf'} target="_blank" rel="noopener noreferrer" className="ml-1 hover:text-gray-700">
+                            Learn about AHP
+                        </a>
+                    </div>
+                </footer>
             </div>
         </div>
         </DndProvider>

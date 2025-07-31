@@ -1,6 +1,6 @@
 {
   "name": "ahp-decision-tool",
-  "version": "0.1.0",
+  "version": "0.8.0",
   "homepage": "https://amarchuk7.github.io/ahp-decision-tool",
   "private": true,
   "dependencies": {
