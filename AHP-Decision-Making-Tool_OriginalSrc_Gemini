@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
+// Note: The following libraries are loaded via script tags in the App component
+// import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import { Bar, Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -12,8 +13,6 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
-import { DndProvider } from 'react-dnd';
-import { HTML5Backend } from 'react-dnd-html5-backend';
 
 // Register Chart.js components
 ChartJS.register(
@@ -152,76 +151,6 @@ const interpolate = (x, points) => {
     return p1.y + slope * (x - p1.x);
 };
 
-const normalizeMatrix = (matrix) => {
-    const numCriteria = matrix.length;
-    const normalized = Array(numCriteria).fill(0).map(() => Array(numCriteria).fill(0));
-    const columnSums = Array(numCriteria).fill(0);
-
-    for (let j = 0; j < numCriteria; j++) {
-        for (let i = 0; i < numCriteria; i++) {
-            columnSums[j] += matrix[i][j];
-        }
-    }
-
-    for (let i = 0; i < numCriteria; i++) {
-        for (let j = 0; j < numCriteria; j++) {
-            normalized[i][j] = matrix[i][j] / columnSums[j];
-        }
-    }
-    return normalized;
-};
-
-const calculateOptionValues = (options, criteria, utilityFunctions) => {
-    const newOptionValues = {};
-    options.forEach(option => {
-        newOptionValues[option.id] = {};
-        criteria.forEach(criterion => {
-            const func = utilityFunctions[criterion.id];
-            let utility = 0;
-            if (func) {
-                if (func.criterionType === 'qualitative') {
-                    const selectedLabel = option.id[criterion.id];
-                    const level = func.qualitativeLevels.find(l => l.label === selectedLabel);
-                    if (level) {
-                        utility = level.utility;
-                    }
-                } else {
-                    const value = parseFloat(option.id[criterion.id]);
-                    if (!isNaN(value)) {
-                        if (func.mode === 'formula' && func.formulaString) {
-                            const result = safeEval(func.formulaString, value);
-                            if (result !== null) utility = result;
-                        } else if (func.mode === 'table' && func.points && func.points.length > 0) {
-                            utility = interpolate(value, func.points);
-                        }
-                    }
-                }
-            }
-            newOptionValues[option.id][criterion.id] = Math.max(0, Math.min(100, utility));
-        });
-    });
-    return newOptionValues;
-};
-
-const calculateFinalScores = (options, criteria, weights, optionValues) => {
-    const scores = [];
-    options.forEach(option => {
-        let totalScore = 0;
-        criteria.forEach((criterion, index) => {
-            const utility = optionValues[option.id]?.[criterion.id] || 0;
-            const weight = weights[index] || 0;
-            totalScore += utility * weight;
-        });
-        scores.push({ optionId: option.id, score: totalScore });
-    });
-    return scores;
-};
-
-const checkConsistency = (matrix) => {
-    const weights = calculateWeights(normalizeMatrix(matrix));
-    return calculateConsistency(matrix, weights);
-};
-
 
 // --- React Components ---
 
@@ -235,6 +164,12 @@ const Card = ({ title, children }) => (
 const Step1 = ({ objective, setObjective, criteria, setCriteria, options, setOptions }) => {
   const [newCriterion, setNewCriterion] = useState('');
   const [newOption, setNewOption] = useState('');
+  
+  const { DragDropContext, Droppable, Draggable } = window.ReactBeautifulDnd || {};
+
+  if (!DragDropContext) {
+      return <Card title="Step 1: Define Goal, Criteria & Options"><div>Loading drag and drop...</div></Card>;
+  }
   
   const garbageCanIcon = (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -883,12 +818,13 @@ const Step5 = ({ onGenerateReport, ...props }) => {
 };
 
 const ReportPage = ({ data, onBack }) => {
+    if (!data) {
+        return <div className="p-8">Loading report data...</div>;
+    }
+
+    const { objective, sortedOptions, criteria, weights, consistency, pairwiseMatrix, utilityFunctions, optionValues } = data;
+
     useEffect(() => {
-        if (!data) {
-            onBack();
-            return;
-        }
-        const { objective, sortedOptions, criteria, weights, consistency, pairwiseMatrix, utilityFunctions, optionValues } = data;
         const reportWindow = window.open('', '_blank');
         if (reportWindow) {
             const resultsTable = sortedOptions.map((opt, index) => `
@@ -1024,246 +960,187 @@ const ReportPage = ({ data, onBack }) => {
             `);
             reportWindow.document.close();
         }
-    }, [data, onBack]);
-
-    if (!data) {
-        return <div className="p-8">Loading report data...</div>;
-    }
+        onBack();
+    }, [data, onBack, objective, sortedOptions, criteria, weights, consistency, pairwiseMatrix, utilityFunctions, optionValues]);
 
     return null; // This component now only handles opening the report
 };
 
+
+// --- Main App Component ---
+
 function App() {
-    const [objective, setObjective] = useState("<DESCRIPTION> Decision making to select the best option");
+  const [view, setView] = useState('main');
+  const [scriptsLoaded, setScriptsLoaded] = useState(false);
   
-    const [criteria, setCriteria] = useState([
-        { id: 'Risk', content: 'Risk' },
-        { id: 'SW Effort/Schedule', content: 'SW Effort/Schedule' },
-        { id: 'HW Costs', content: 'HW Costs' },
-        { id: 'Future Adaptability', content: 'Future Adaptability' }
-    ]);
-    
-    const [options, setOptions] = useState([
-        { id: 'Dual Primary', content: 'Dual Primary' },
-        { id: 'Compressed Dual Primary', content: 'Compressed Dual Primary' },
-        { id: 'Compressed Asymmetric Primary', content: 'Compressed Asymmetric Primary' },
-        { id: 'Tele-assisted Secondary', content: 'Tele-assisted Secondary' }
-    ]);
-    
-    const [pairwiseMatrix, setPairwiseMatrix] = useState([
-      [1, 9, 7, 7],
-      [1/9, 1, 3, 1/3],
-      [1/7, 1/3, 1, 5],
-      [1/7, 3, 1/5, 1]
-    ]);
-    
-    const [weights, setWeights] = useState([]);
-    const [consistency, setConsistency] = useState({ cr: 0, isConsistent: true });
-    
-    const [utilityFunctions, setUtilityFunctions] = useState({
-        'Risk': { criterionType: 'qualitative', mode: 'table', formulaString: '', points: [], qualitativeLevels: [{label: 'Low', utility: 100}, {label: 'Medium', utility: 50}, {label: 'High', utility: 0}] },
-        'SW Effort/Schedule': { criterionType: 'quantitative', mode: 'table', formulaString: '', points: [{x: 0, y: 0}, {x: 100, y: 100}], qualitativeLevels: [] },
-        'HW Costs': { criterionType: 'quantitative', mode: 'formula', formulaString: '100 * (400000 - x) / (400000 - 300000)', points: [{x: 300000, y: 100}, {x: 400000, y: 0}], qualitativeLevels: [] },
-        'Future Adaptability': { criterionType: 'quantitative', mode: 'table', formulaString: '', points: [{x: 0, y: 0}, {x: 100, y: 100}], qualitativeLevels: [] }
-    });
-    const [utilityScores, setUtilityScores] = useState({});
-    
-    const [optionValues, setOptionValues] = useState({});
-    const [view, setView] = useState('main'); // 'main' or 'report'
+  const [objective, setObjective] = useState('Select the best fallback architecture design');
+  
+  const [criteria, setCriteria] = useState([
+      { id: 'Risk', content: 'Risk' },
+      { id: 'SW Effort/Schedule', content: 'SW Effort/Schedule' },
+      { id: 'HW Costs', content: 'HW Costs' },
+      { id: 'Future Adaptability', content: 'Future Adaptability' }
+  ]);
+  
+  const [options, setOptions] = useState([
+      { id: 'Dual Primary', content: 'Dual Primary' },
+      { id: 'Compressed Dual Primary', content: 'Compressed Dual Primary' },
+      { id: 'Compressed Asymmetric Primary', content: 'Compressed Asymmetric Primary' },
+      { id: 'Tele-assisted Secondary', content: 'Tele-assisted Secondary' }
+  ]);
+  
+  const [pairwiseMatrix, setPairwiseMatrix] = useState([
+    [1, 9, 7, 7],
+    [1/9, 1, 3, 1/3],
+    [1/7, 1/3, 1, 5],
+    [1/7, 3, 1/5, 1]
+  ]);
+  
+  const [weights, setWeights] = useState([]);
+  const [consistency, setConsistency] = useState({ cr: 0, isConsistent: true });
+  
+  const [utilityFunctions, setUtilityFunctions] = useState({
+      'Risk': { criterionType: 'qualitative', mode: 'table', formulaString: '', points: [], qualitativeLevels: [{label: 'Low', utility: 100}, {label: 'Medium', utility: 50}, {label: 'High', utility: 0}] },
+      'SW Effort/Schedule': { criterionType: 'quantitative', mode: 'table', formulaString: '', points: [{x: 0, y: 0}, {x: 100, y: 100}], qualitativeLevels: [] },
+      'HW Costs': { criterionType: 'quantitative', mode: 'formula', formulaString: '100 * (400000 - x) / (400000 - 300000)', points: [{x: 300000, y: 100}, {x: 400000, y: 0}], qualitativeLevels: [] },
+      'Future Adaptability': { criterionType: 'quantitative', mode: 'table', formulaString: '', points: [{x: 0, y: 0}, {x: 100, y: 100}], qualitativeLevels: [] }
+  });
+  
+  const [optionValues, setOptionValues] = useState({
+    'Dual Primary': { 'Risk': 'Low', 'SW Effort/Schedule': 60, 'HW Costs': 380000, 'Future Adaptability': 60 },
+    'Compressed Dual Primary': { 'Risk': 'Low', 'SW Effort/Schedule': 80, 'HW Costs': 360000, 'Future Adaptability': 75 },
+    'Compressed Asymmetric Primary': { 'Risk': 'Low', 'SW Effort/Schedule': 70, 'HW Costs': 340000, 'Future Adaptability': 80 },
+    'Tele-assisted Secondary': { 'Risk': 'Medium', 'SW Effort/Schedule': 60, 'HW Costs': 340000, 'Future Adaptability': 40 },
+  });
+  
+  const [utilityScores, setUtilityScores] = useState({});
 
-    useEffect(() => {
-        if (criteria.length > 0 && pairwiseMatrix.length === criteria.length) {
-            const newWeights = calculateWeights(normalizeMatrix(pairwiseMatrix));
-            setWeights(newWeights);
-            const newConsistency = checkConsistency(pairwiseMatrix);
-            setConsistency(newConsistency);
-        }
-    }, [pairwiseMatrix, criteria]);
-
-    // Initialize utility functions for new criteria and clean up removed ones
-    useEffect(() => {
-        setUtilityFunctions(prev => {
-            const newUtilityFunctions = {};
-            
-            // Add utility functions for existing criteria
-            criteria.forEach(criterion => {
-                if (prev[criterion.id]) {
-                    // Keep existing utility function
-                    newUtilityFunctions[criterion.id] = prev[criterion.id];
-                } else {
-                    // Create new utility function for new criterion
-                    newUtilityFunctions[criterion.id] = {
-                        criterionType: 'quantitative',
-                        mode: 'table',
-                        formulaString: '',
-                        points: [{ x: 0, y: 0 }, { x: 100, y: 100 }],
-                        qualitativeLevels: []
-                    };
-                }
-            });
-            
-            return newUtilityFunctions;
+  useEffect(() => {
+    const loadScript = (src) => {
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = src;
+            script.async = true;
+            script.onload = resolve;
+            script.onerror = (err) => {
+                console.error(`Error loading script: ${src}`);
+                reject(err);
+            };
+            document.head.appendChild(script);
         });
-    }, [criteria]);
-
-    // Update pairwise matrix when criteria change
-    useEffect(() => {
-        const numCriteria = criteria.length;
-        if (numCriteria > 0) {
-            setPairwiseMatrix(prev => {
-                // If matrix size matches, keep existing values
-                if (prev.length === numCriteria) {
-                    return prev;
-                }
-                
-                // Create new matrix with appropriate size
-                const newMatrix = Array(numCriteria).fill(0).map(() => Array(numCriteria).fill(0));
-                
-                // Initialize diagonal to 1
-                for (let i = 0; i < numCriteria; i++) {
-                    newMatrix[i][i] = 1;
-                }
-                
-                // Copy existing values where possible
-                for (let i = 0; i < Math.min(prev.length, numCriteria); i++) {
-                    for (let j = 0; j < Math.min(prev.length, numCriteria); j++) {
-                        if (i !== j) {
-                            newMatrix[i][j] = prev[i]?.[j] || 1;
-                        }
-                    }
-                }
-                
-                // Fill remaining cells with default values
-                for (let i = 0; i < numCriteria; i++) {
-                    for (let j = 0; j < numCriteria; j++) {
-                        if (i !== j && newMatrix[i][j] === 0) {
-                            newMatrix[i][j] = 1;
-                            newMatrix[j][i] = 1;
-                        }
-                    }
-                }
-                
-                return newMatrix;
-            });
-        }
-    }, [criteria]);
-
-    const finalScores = useMemo(() => {
-        if (criteria.length === 0 || options.length === 0) return [];
-        try {
-            const normalizedMatrix = normalizeMatrix(pairwiseMatrix);
-            const weights = calculateWeights(normalizedMatrix);
-            const calculatedOptionValues = calculateOptionValues(options, criteria, utilityFunctions);
-            const scores = calculateFinalScores(options, criteria, weights, calculatedOptionValues);
-            return scores;
-        } catch (error) {
-            console.error("Error calculating final scores:", error);
-            return [];
-        }
-    }, [criteria, options, pairwiseMatrix, utilityFunctions]);
-
-    const sortedOptions = useMemo(() => {
-        if (finalScores.length === 0) return [];
-        const enrichedOptions = options.map(opt => ({
-            ...opt,
-            score: finalScores.find(s => s.optionId === opt.id)?.score || 0
-        }));
-        return enrichedOptions.sort((a, b) => b.score - a.score);
-    }, [options, finalScores]);
-
-    const handleSave = () => {
-        const dataStr = JSON.stringify({ objective, criteria, options, pairwiseMatrix, utilityFunctions, optionValues });
-        const blob = new Blob([dataStr], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "ahp_data.json";
-        a.click();
-        URL.revokeObjectURL(url);
     };
 
-    const handleLoad = (event) => {
-        const file = event.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const data = JSON.parse(e.target.result);
-                setObjective(data.objective);
-                setCriteria(data.criteria);
-                setOptions(data.options);
-                setPairwiseMatrix(data.pairwiseMatrix);
-                setUtilityFunctions(data.utilityFunctions);
-                setOptionValues(data.optionValues);
-            } catch (error) {
-                console.error("Error loading file:", error);
+    Promise.all([
+        loadScript("https://unpkg.com/react-beautiful-dnd@13.1.1/dist/react-beautiful-dnd.min.js")
+    ])
+    .then(() => {
+        setScriptsLoaded(true);
+    })
+    .catch(error => {
+        console.error("Failed to load external scripts.", error);
+    });
+
+  }, []);
+
+  const handleMatrixChange = (newMatrix) => {
+      setPairwiseMatrix(newMatrix);
+  };
+  
+  useEffect(() => {
+    const newWeights = calculateWeights(pairwiseMatrix);
+    setWeights(newWeights);
+    const newConsistency = calculateConsistency(pairwiseMatrix, newWeights);
+    setConsistency(newConsistency);
+  }, [pairwiseMatrix]);
+
+  useEffect(() => {
+    const n = criteria.length;
+    setPairwiseMatrix(oldMatrix => {
+        const newMatrix = Array(n).fill(0).map(() => Array(n).fill(1));
+        const oldN = oldMatrix.length;
+        for(let i=0; i < Math.min(n, oldN); i++) {
+            for(let j=0; j < Math.min(n, oldN); j++) {
+                newMatrix[i][j] = oldMatrix[i][j];
             }
-        };
-        reader.readAsText(file);
-    };
-
-    const handleMatrixChange = (newMatrix) => {
-        setPairwiseMatrix(newMatrix);
-    };
-
-    const handleGenerateReport = () => {
-        setView('report');
-    };
-
-    if (view === 'report') {
-        const reportData = {
-            objective,
-            sortedOptions,
-            criteria,
-            weights: calculateWeights(normalizeMatrix(pairwiseMatrix)),
-            consistency: checkConsistency(pairwiseMatrix),
-            pairwiseMatrix,
-            utilityFunctions,
-            optionValues: calculateOptionValues(options, criteria, utilityFunctions),
-            options,
-        };
-        return <ReportPage data={reportData} onBack={() => setView('main')} />;
-    }
-
+        }
+        return newMatrix;
+    });
+    
+    setUtilityFunctions(prevFuncs => {
+        const newFuncs = {...prevFuncs};
+        criteria.forEach(c => {
+            if (!newFuncs[c.id]) {
+                newFuncs[c.id] = { criterionType: 'quantitative', mode: 'table', formulaString: '', points: [], qualitativeLevels: [] };
+            }
+        });
+        return newFuncs;
+    });
+  }, [criteria]);
+  
+  if (!scriptsLoaded) {
     return (
-        <DndProvider backend={HTML5Backend}>
-        <div className="bg-gray-50 min-h-screen font-sans">
-            <div className="bg-green-50 border-b-2 border-green-200 p-4">
-                <header className="text-center">
-                    <h1 className="text-4xl md:text-5xl font-extrabold text-green-800">AHP Decision-Making Tool</h1>
-                    <p className="text-lg text-green-700 mt-2">A structured approach to complex decision-making.</p>
-                    <p className="text-sm text-gray-600 mt-2">
-                        Learn more about the Analytic Hierarchy Process (AHP) in this <a href={process.env.PUBLIC_URL + '/Analytic-Hierarchy-Process-Tool-v2_dl.pdf'} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">guide</a>.
-                    </p>
-                </header>
-            </div>
-            <div className="container mx-auto p-4 md:p-8">
-                <main>
-                    <Step1 objective={objective} setObjective={setObjective} criteria={criteria} setCriteria={setCriteria} options={options} setOptions={setOptions} />
-                    <Step2 criteria={criteria} pairwiseMatrix={pairwiseMatrix} onMatrixChange={handleMatrixChange} weights={weights} consistency={consistency} />
-                    <Step3 criteria={criteria} utilityFunctions={utilityFunctions} setUtilityFunctions={setUtilityFunctions} />
-                    <Step4 options={options} criteria={criteria} optionValues={optionValues} setOptionValues={setOptionValues} utilityFunctions={utilityFunctions} utilityScores={utilityScores} setUtilityScores={setUtilityScores} />
-                    
-                    {weights.length > 0 && Object.keys(utilityScores).length > 0 && (
-                      <Step5 
-                        objective={objective} 
-                        options={options} 
-                        criteria={criteria} 
-                        weights={weights} 
-                        consistency={consistency}
-                        utilityScores={utilityScores}
-                        pairwiseMatrix={pairwiseMatrix}
-                        utilityFunctions={utilityFunctions}
-                        optionValues={optionValues}
-                        onGenerateReport={handleGenerateReport}
-                      />
-                    )}
-                </main>
-            </div>
+        <div className="flex justify-center items-center min-h-screen">
+            <div className="text-xl font-semibold">Loading Libraries...</div>
         </div>
-        </DndProvider>
     );
+  }
+  
+  if (view === 'report') {
+      const finalScores = useMemo(() => {
+          const scores = {};
+          options.forEach(option => {
+              let totalScore = 0;
+              criteria.forEach((criterion, index) => {
+                  const utility = utilityScores[option.id]?.[criterion.id] || 0;
+                  const weight = weights[index] || 0;
+                  totalScore += utility * weight;
+              });
+              scores[option.id] = totalScore;
+          });
+          return scores;
+      }, [options, criteria, weights, utilityScores]);
+
+      const sortedOptions = useMemo(() => 
+          options.map(o => ({...o, score: finalScores[o.id] || 0})).sort((a, b) => b.score - a.score),
+          [options, finalScores]
+      );
+      const reportData = { objective, options, criteria, weights, consistency, utilityScores, pairwiseMatrix, utilityFunctions, optionValues, sortedOptions };
+      return <ReportPage data={reportData} onBack={() => setView('main')} />;
+  }
+
+  return (
+    <div className="bg-gray-50 min-h-screen font-sans">
+        <div className="bg-green-50 border-b-2 border-green-200 p-4">
+            <header className="text-center">
+                <h1 className="text-4xl md:text-5xl font-extrabold text-green-800">AHP Decision-Making Tool</h1>
+                <p className="text-lg text-green-700 mt-2">A structured approach to complex decision-making.</p>
+            </header>
+        </div>
+        <div className="container mx-auto p-4 md:p-8">
+            <main>
+                <Step1 objective={objective} setObjective={setObjective} criteria={criteria} setCriteria={setCriteria} options={options} setOptions={setOptions} />
+                <Step2 criteria={criteria} pairwiseMatrix={pairwiseMatrix} onMatrixChange={handleMatrixChange} weights={weights} consistency={consistency} />
+                <Step3 criteria={criteria} utilityFunctions={utilityFunctions} setUtilityFunctions={setUtilityFunctions} />
+                <Step4 options={options} criteria={criteria} optionValues={optionValues} setOptionValues={setOptionValues} utilityFunctions={utilityFunctions} utilityScores={utilityScores} setUtilityScores={setUtilityScores} />
+                
+                {weights.length > 0 && Object.keys(utilityScores).length > 0 && (
+                  <Step5 
+                    objective={objective} 
+                    options={options} 
+                    criteria={criteria} 
+                    weights={weights} 
+                    consistency={consistency}
+                    utilityScores={utilityScores}
+                    pairwiseMatrix={pairwiseMatrix}
+                    utilityFunctions={utilityFunctions}
+                    optionValues={optionValues}
+                    onGenerateReport={() => setView('report')}
+                  />
+                )}
+            </main>
+        </div>
+    </div>
+  );
 }
 
 export default App;
-
